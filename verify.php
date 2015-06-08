@@ -49,6 +49,7 @@ class EmailVerifier {
     private $fromAddress    = 'test@example.com';
     private $connectTimeout = 60;
     private $slow           = true;
+    private $slowDelay      = 1;
     private $debug          = false;
 
     private $acceptAllPrefix;
@@ -59,42 +60,99 @@ class EmailVerifier {
         $this->acceptAllPrefix = self::getRandomString();
     }
 
+    /**
+     * Set the checks that should be performed by verification. Or (|) together the EmailVerifier::CHECK_* flags, or use EmailVerifier::CHECK_EVERYTHING.
+     * @param int $flags The check flags.
+     */
     public function setChecks($flags) {
         $this->checks = $flags;
     }
 
-    public function getSteps() {
+    /**
+     * Get the checks that are performed during verification. Default EmailVerifier::CHECK_EVERYTHING.
+     * @return int The check flags.
+     */
+    public function getChecks() {
         return $this->checks;
     }
 
+    /**
+     * Set the email address that should be specified as the FROM address when connecting to SMTP servers.
+     * @param string $address A valid email address.
+     */
     public function setFromAddress($address) {
         $this->fromAddress = $address;
     }
 
+    /**
+     * Get the email address used as the FROM address. Default "test@example.com".
+     * @return string The email address.
+     */
     public function getFromAddress() {
         return $this->fromAddress;
     }
 
+    /**
+     * Set the connection timeout used when connecting to email servers.
+     * @param int $timeout The timeout, in seconds.
+     */
     public function setConnectTimeout($timeout) {
         $this->connectTimeout = $timeout;
     }
 
+    /**
+     * Get the connection timeout used when connecting. Default 60.
+     * @return int The timeout, in seconds.
+     */
     public function getConnectTimeout() {
         return $this->connectTimeout;
     }
 
+    /**
+     * Enable or disable slow verify mode. This slows down the verification, but will help prevent the verification looking like spam.
+     * @param bool $on Slow mode enabled?
+     */
     public function setSlow($on) {
         $this->slow = $on;
     }
 
+    /**
+     * Get whether slow verify mode is enabled. Default true.
+     * @return bool Slow mode enabled?
+     */
     public function getSlow() {
         return $this->slow;
     }
 
+    /**
+     * Set the delay between subsequent connections to the same server when slow mode is enabled.
+     * @param float $delay The delay, in seconds.
+     */
+    public function setSlowDelay($delay) {
+      $this->slowDelay = $delay;
+    }
+
+    /**
+     * Get the delay between connections in slow mode.
+     * @return float The delay, in seconds.
+     */
+    public function getSlowDelay() {
+      return $this->slowDelay;
+    }
+
+    /**
+     * Set whether debug info should be printed. Default false.
+     * @param bool $on Debug mode on?
+     */
     public function setDebug($on) {
         $this->debug = $on;
     }
 
+    /**
+     * Verify a a bunch of email addresses.
+     * @param  string[] $emails The emails to verify
+     * @return array            An array having the emails as the keys and the verify results (one of the EmailVerifier::RESULT_* constants) as the values.
+     */
     public function verify($emails) {
         $results = array();
 
@@ -174,7 +232,10 @@ class EmailVerifier {
                         break;
                     }
                     else if ($this->debug) {
-                        echo "Could not connect to $host ($domain): $connectErrStr ($connectErrNo)\n";
+                        if (!isset($connectErrNo) || $connectErrNo === 0)
+                            echo "Could not connect to $host ($domain): error opening socket\n";
+                        else
+                            echo "Could not connect to $host ($domain): $connectErrStr ($connectErrNo)\n";
                     }
                 }
             }
@@ -198,8 +259,7 @@ class EmailVerifier {
                     foreach ($emails as $email)
                         $results[$email] = self::RESULT_ACCEPT_ALL;
 
-                    //$this->closeSocket($connect);
-                    //continue;
+                    // continue;
                 }
 
                 if ($this->slow)
@@ -210,7 +270,7 @@ class EmailVerifier {
                 // Check each email with a different connection, pausing between
                 foreach ($emails as $email) {
                     if (!$connect) {
-                        usleep(1000000); // 1 sec
+                        usleep($this->slowDelay * 1000000); // convert to microseconds
 
                         // Make a new connection
                         $host = $this->resolvedDomains[$domain];
@@ -230,6 +290,11 @@ class EmailVerifier {
         return $results;
     }
 
+    /**
+     * Verify a single email address.
+     * @param  string $email The email address.
+     * @return string        The verification result, one of the EmailVerifier::RESULT_* constants.
+     */
     public function verifySingle($email) {
         $result = $this->verify(array( $email ));
         return $result[$email];
@@ -280,36 +345,41 @@ class EmailVerifier {
         return $mxHosts;
     }
 
+    /**
+     * Check if an array of mailboxes are valid.
+     * @param resource $sock    The socket connection to the host.
+     * @param string[] $emails  The array of email addresses to check.
+     * @param array    $results A reference to the array into which the results should be saved as email => result.
+     * @param string   $host    The host (for debugging).
+     * @param string   $domain  The domain (for debugging).
+     */
     private function checkMailboxes($sock, $emails, &$results, $host, $domain) {
         $myHostName = gethostname(); // $_SERVER['SERVER_NAME']
 
         $out = fread($sock, 1024);
         if ($this->debug)
-            echo "Connected to $host ($domain)\n<< $out\n";
+            echo "Connected to $host ($domain)\n>> $out\n";
 
         if (preg_match("/^220/i", $out)) {
             fputs($sock, "HELO $myHostName\r\n");
             $out = fread($sock, 1024);
 
             if ($this->debug)
-                echo ">> HELO $myHostName\n<< $out\n";
+                echo "<< HELO $myHostName\n>> $out\n";
 
             fputs($sock, "MAIL FROM: <{$this->fromAddress}>\r\n");
             $from = fread($sock, 1024);
 
             if ($this->debug)
-                echo ">> MAIL FROM: <{$this->fromAddress}>\n<< $from\n";
+                echo "<< MAIL FROM: <{$this->fromAddress}>\n>> $from\n";
 
             foreach ($emails as $email) {
                 fputs($sock, "RCPT TO: <$email>\r\n");
                 $to = fread($sock, 1024);
 
                 if ($this->debug)
-                    echo ">> RCPT TO: <$email>\n<< $to\n";
+                    echo "<< RCPT TO: <$email>\n>> $to\n";
 
-                //$results[$email] = preg_match("/^250/i", $to)
-                //  ? self::RESULT_VALID
-                //  : self::RESULT_INVALID;
                 if (preg_match("/^250/i", $to)) {
                     if ($results[$email] !== self::RESULT_ACCEPT_ALL)
                         $results[$email] = self::RESULT_VALID;
@@ -329,23 +399,12 @@ class EmailVerifier {
         }
     }
 
-    //private function checkMailbox($sock, $email) {
-    //  fputs($sock, "RCPT TO: <$email>\r\n");
-    //  $to = fread($sock, 1024);
-    //
-    //  if ($this->debug)
-    //    echo ">> RCPT TO: <$email>\n<< $to\n";
-    //
-    //  return preg_match("/^250/i", $to);
-    //  // TODO: other also handles 451/452 to be OK - mailbox full, etc?
-    //}
-
     private function closeSocket(&$sock) {
         //fputs($sock, "RSET\r\n");
         fputs($sock, "QUIT");
 
         if ($this->debug)
-            echo ">> QUIT\n";
+            echo "<< QUIT\n";
 
         fclose($sock);
         $sock = null;
@@ -359,12 +418,12 @@ class EmailVerifier {
         return $domains;
     }
 
-    private static function getRandomString() {
-        static $chars = 'abcdefghijklmnopqrstuvwxyz';
-        static $len = 26; // strlen($chars)
+    private static function getRandomString($length = 10) {
+        $chars = 'abcdefghijklmnopqrstuvwxyz';
+        $len   = strlen($chars);
 
         $str = '';
-        for ($i = 0; $i < 10; ++$i) {
+        for ($i = 0; $i < $length; ++$i) {
             $index = ord(openssl_random_pseudo_bytes(1)) % $len;
             $str .= $chars[$index];
         }

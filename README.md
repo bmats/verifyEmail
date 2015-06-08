@@ -1,35 +1,114 @@
-emailVerify
-==========
-Is a PHP function that can be easily used to verify an email address and make sure it is valid and does exist on the mail server.
+# EmailVerifier
 
-This function connects to the mail server and checks whether the mailbox exists or not.
+A PHP class that can be used to verify email addresses.
 
+This fork adds some additional features and incorporates the verification into a class so some information can be reused between calls.
 
-How to use:
-===========
-Simply call the function:
+In addition to making sure the mailbox exists, these checks are available:
 
-```PHP
-verifyEmail('some.email.address@example.com', 'my.email.address@my-domain.com');
+- Check the syntax of the email.
+- Check whether the domain is on a list of disposable domains.
+- Check whether the mail server reports all mailboxes as valid.
+
+The possible results are:
+
+- bad syntax
+- disposable
+- no mx records
+- invalid domain
+- smtp fail
+- accept all
+- invalid
+- valid :thumbsup:
+
+## Usage
+
+```php
+$v = new EmailVerifier();
+$v->setDebug(true);
+
+$results = $v->verify(array(
+  'email@gmail.com',
+  'support@github.com',
+  'email@example.com',
+));
+
+echo "\n";
+foreach ($results as $email => $result) {
+  echo "$email: $result\n";
+}
 ```
-The first email address 'some.email.address@example.com' is the one to be checked, and the second 'my.email.address@my-domain.com' is an email address to be provided to the server (just for testing, but would be better if it is a valid email)
 
-This will restun a string "valid" if the email some.email.address@example.com is valid, and "invalid" if the email is invalid
+Example output:
 
+```
+Connected to gmail-smtp-in.l.google.com (gmail.com)
+>> 220 mx.google.com ESMTP abc.123 - gsmtp
 
-If you want to get the the actual details of that connection, add another parameter to the function:
+<< HELO [your-server]
+>> 250 mx.google.com at your service
 
-```PHP
-print_r(verifyEmail('some.email.address@example.com', 'my.email.address@my-domain.com', true));
+<< MAIL FROM: <test@example.com>
+>> 250 2.1.0 OK abc.123 - gsmtp
+
+<< RCPT TO: <mmiviadjpp@gmail.com>
+>> 550-5.1.1 The email account that you tried to reach does not exist. Please try
+550-5.1.1 double-checking the recipient's email address for typos or
+550-5.1.1 unnecessary spaces. Learn more at
+550 5.1.1 https://support.google.com/mail/answer/6596 abc.123 - gsmtp
+
+<< QUIT
+Connected to gmail-smtp-in.l.google.com (gmail.com)
+>> 220 mx.google.com ESMTP def.456 - gsmtp
+
+<< HELO [your-server]
+>> 250 mx.google.com at your service
+
+<< MAIL FROM: <test@example.com>
+>> 250 2.1.0 OK def.456 - gsmtp
+
+<< RCPT TO: <email@gmail.com>
+>> 550 5.2.1 The email account that you tried to reach is disabled. def.456 - gsmtp
+
+<< QUIT
+Connected to ASPMX.L.GOOGLE.com (github.com)
+>> 220 mx.google.com ESMTP ghi.789 - gsmtp
+
+<< HELO [your-server]
+>> 250 mx.google.com at your service
+
+<< MAIL FROM: <test@example.com>
+>> 250 2.1.0 OK ghi.789 - gsmtp
+
+<< RCPT TO: <mmiviadjpp@github.com>
+>> 550-5.1.1 The email account that you tried to reach does not exist. Please try
+550-5.1.1 double-checking the recipient's email address for typos or
+550-5.1.1 unnecessary spaces. Learn more at
+550 5.1.1 https://support.google.com/mail/answer/6596 ghi.789 - gsmtp
+
+<< QUIT
+Connected to ASPMX.L.GOOGLE.com (github.com)
+>> 220 mx.google.com ESMTP jkl.012 - gsmtp
+
+<< HELO [your-server]
+>> 250 mx.google.com at your service
+
+<< MAIL FROM: <test@example.com>
+>> 250 2.1.0 OK jkl.012 - gsmtp
+
+<< RCPT TO: <support@github.com>
+>> 250 2.1.5 OK jkl.012 - gsmtp
+
+<< QUIT
+example.com is disposable.
+
+email@gmail.com: invalid
+support@github.com: valid
+email@example.com: disposable
 ```
 
-This will resturn an array that looks like this:
+See [verify.php](verify.php) for all the possible options.
 
-```HTML
-Array ( [0] => invalid [1] => 250 mx.google.com at your service 250 2.1.0 OK u4si6155213qat.124 - gsmtp 550-5.1.1 The email account that you tried to reach does not exist. Please try )
-```
+## Notes
 
-
-Notes:
-======
-- Some mail servers will silentlty reject the test message, to prevent spammers from checking against their users' emails and filter the valid emails, so this function might not work properly with all mail servers.
+- Some mail servers will silently reject the test message to prevent spammers from checking against their users' emails and filter the valid emails, so this function might not work properly with all mail servers.
